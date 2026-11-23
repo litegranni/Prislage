@@ -7,27 +7,6 @@ import (
 	"testing"
 )
 
-func TestIsKnownBlockedStore(t *testing.T) {
-	tests := []struct {
-		url     string
-		blocked bool
-	}{
-		{"https://www.elgiganten.se/product/foo/123", true},
-		{"https://elgiganten.se/product/foo/123", true},
-		{"https://www.inet.se/produkt/1/x", false},
-		{"https://shop.example/p/1", false},
-	}
-	for _, tt := range tests {
-		got, reason := IsKnownBlockedStore(tt.url)
-		if got != tt.blocked {
-			t.Errorf("IsKnownBlockedStore(%q) = %v (%q), want %v", tt.url, got, reason, tt.blocked)
-		}
-		if tt.blocked && reason == "" {
-			t.Errorf("expected reason for %q", tt.url)
-		}
-	}
-}
-
 func TestParseHTML_CheckpointIsBlocked(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

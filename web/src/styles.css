@@ -1,0 +1,197 @@
+:root {
+  --bg0: #0c1f1b;
+  --bg1: #14352d;
+  --bg2: #1b463c;
+  --ink: #f2f6f1;
+  --muted: #a7b8b1;
+  --accent: #c8f060;
+  --accent-ink: #132018;
+  --warn: #ffb454;
+  --danger: #ff7a7a;
+  --card: rgba(255, 255, 255, 0.04);
+  --line: rgba(255, 255, 255, 0.1);
+  --radius: 18px;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #1f5a4a 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #2a4a28 0%, transparent 50%),
+    linear-gradient(160deg, var(--bg0), var(--bg1) 45%, #0a1814);
+  background-attachment: fixed;
+}
+
+#app { min-height: 100vh; }
+
+a { color: var(--accent); }
+
+.app-shell {
+  width: min(920px, calc(100% - 1.5rem));
+  margin: 0 auto;
+  padding: 1.25rem 0 3rem;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.tagline {
+  color: var(--muted);
+  margin: 0.35rem 0 1.25rem;
+  max-width: 36ch;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+  backdrop-filter: blur(10px);
+}
+
+.form-row {
+  display: grid;
+  gap: 0.65rem;
+}
+@media (min-width: 700px) {
+  .form-row { grid-template-columns: 1fr 140px auto; align-items: end; }
+}
+
+label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,0.25);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  font: inherit;
+}
+
+button, .btn {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.7rem 1.1rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+button.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.status {
+  margin: 0.75rem 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+.status.error { color: var(--danger); }
+
+.item-list { display: grid; gap: 0.75rem; }
+
+.item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease;
+}
+.item:hover { transform: translateY(-1px); border-color: rgba(200,240,96,0.35); }
+
+.item h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  margin: 0 0 0.25rem;
+  line-height: 1.25;
+}
+.meta { color: var(--muted); font-size: 0.85rem; }
+.prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin-top: 0.65rem;
+  font-size: 0.95rem;
+}
+.prices strong { color: var(--accent); font-weight: 600; }
+.badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.badge.capture { border-color: var(--warn); color: var(--warn); }
+
+.spark {
+  width: 88px;
+  height: 40px;
+  align-self: center;
+}
+
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+.chart-wrap {
+  width: 100%;
+  height: 220px;
+  margin-top: 0.5rem;
+}
+.chart-wrap svg { width: 100%; height: 100%; }
+
+.empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--muted);
+}
+
+.help {
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.help code {
+  font-size: 0.8rem;
+  background: rgba(0,0,0,0.35);
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+}

@@ -23,6 +23,7 @@ type Result struct {
 	Currency string             `json:"currency"`
 	InStock  *bool              `json:"in_stock,omitempty"`
 	GTIN     string             `json:"gtin,omitempty"`
+	SKU      string             `json:"sku,omitempty"`
 	Brand    string             `json:"brand,omitempty"`
 	Source   models.PriceSource `json:"source"`
 	Store    string             `json:"store"`

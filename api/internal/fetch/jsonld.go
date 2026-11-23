@@ -9,6 +9,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/shopspring/decimal"
 
+	"prislage/internal/gtin"
 	"prislage/internal/models"
 )
 
@@ -104,7 +105,7 @@ func resultFromProductNode(node jsonLDObject) (*Result, bool) {
 
 	name := stringField(node, "name")
 	brand := brandField(node)
-	gtin := firstStringField(node, "gtin13", "gtin14", "gtin12", "gtin8", "gtin", "sku", "productID", "mpn")
+	gtinVal, skuVal := classifyProductIDs(node)
 
 	offersRaw, ok := node["offers"]
 	if !ok {
@@ -117,7 +118,10 @@ func resultFromProductNode(node jsonLDObject) (*Result, bool) {
 				res.Brand = brand
 			}
 			if res.GTIN == "" {
-				res.GTIN = gtin
+				res.GTIN = gtinVal
+			}
+			if res.SKU == "" {
+				res.SKU = skuVal
 			}
 			if res.Name == "" {
 				res.Name = name
@@ -127,6 +131,33 @@ func resultFromProductNode(node jsonLDObject) (*Result, bool) {
 		}
 	}
 	return nil, false
+}
+
+// classifyProductIDs prefers real GTINs; non-GTIN identifiers become SKU.
+func classifyProductIDs(node jsonLDObject) (gtinVal, skuVal string) {
+	for _, key := range []string{"gtin13", "gtin14", "gtin12", "gtin8", "gtin"} {
+		if raw := stringField(node, key); raw != "" {
+			g, s := gtin.Classify(raw)
+			if gtinVal == "" && g != "" {
+				gtinVal = g
+			} else if skuVal == "" && s != "" {
+				skuVal = s
+			}
+		}
+	}
+	for _, key := range []string{"sku", "productID", "mpn"} {
+		if raw := stringField(node, key); raw != "" {
+			g, s := gtin.Classify(raw)
+			if gtinVal == "" && g != "" {
+				gtinVal = g
+				continue
+			}
+			if skuVal == "" && s != "" {
+				skuVal = s
+			}
+		}
+	}
+	return gtinVal, skuVal
 }
 
 func resultFromOfferNode(node jsonLDObject, productName string) (*Result, bool) {

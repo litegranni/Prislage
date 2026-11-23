@@ -1,0 +1,19 @@
+{
+  "name": "prislage-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 4188",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4188"
+  },
+  "dependencies": {
+    "preact": "^10.26.4"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2"
+  }
+}

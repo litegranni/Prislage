@@ -8,10 +8,11 @@
 .env.local
 *.pem
 
-# Node (frontend later)
+# Node
 node_modules/
 dist/
 web/dist/
+web/node_modules/
 
 # IDE / OS
 .DS_Store

@@ -14,6 +14,7 @@ type Item struct {
 	Store         string          `json:"store"`
 	Category      string          `json:"category"`
 	GTIN          *string         `json:"gtin,omitempty"`
+	SKU           *string         `json:"sku,omitempty"`
 	Brand         *string         `json:"brand,omitempty"`
 	TargetPrice   decimal.Decimal `json:"target_price"`
 	Currency      string          `json:"currency"`
@@ -24,12 +25,26 @@ type Item struct {
 	CreatedAt     time.Time       `json:"created_at"`
 }
 
+type StoreMode string
+
+const (
+	StoreModeAuto        StoreMode = "auto"
+	StoreModeCaptureOnly StoreMode = "capture_only"
+)
+
+type Store struct {
+	Domain string    `json:"domain"`
+	Mode   StoreMode `json:"mode"`
+	Notes  string    `json:"notes"`
+}
+
 type PriceSource string
 
 const (
-	SourceJSONLD PriceSource = "jsonld"
-	SourceOG     PriceSource = "og"
-	SourceManual PriceSource = "manual"
+	SourceJSONLD  PriceSource = "jsonld"
+	SourceOG      PriceSource = "og"
+	SourceManual  PriceSource = "manual"
+	SourceCapture PriceSource = "capture"
 )
 
 type PricePoint struct {

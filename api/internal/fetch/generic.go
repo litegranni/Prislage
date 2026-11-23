@@ -27,14 +27,6 @@ func NewGenericFetcher(httpClient *HTTPClient) *GenericFetcher {
 func (g *GenericFetcher) Match(_ string) bool { return true }
 
 func (g *GenericFetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
-	if blocked, reason := IsKnownBlockedStore(rawURL); blocked {
-		return nil, &Error{
-			Code:    ErrCodeBlocked,
-			Message: reason,
-			Store:   urlx.StoreHost(rawURL),
-		}
-	}
-
 	body, finalURL, err := g.HTTP.Get(ctx, rawURL)
 	if err != nil {
 		return nil, err
@@ -98,4 +90,5 @@ func finalizeResult(res *Result, pageURL string) {
 	res.Name = strings.TrimSpace(res.Name)
 	res.Brand = strings.TrimSpace(res.Brand)
 	res.GTIN = strings.TrimSpace(res.GTIN)
+	res.SKU = strings.TrimSpace(res.SKU)
 }

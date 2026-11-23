@@ -2,13 +2,22 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
+
+	"prislage/internal/config"
+	"prislage/internal/db"
 	"prislage/internal/fetch"
+	"prislage/internal/service"
+	"prislage/internal/store"
 	"prislage/internal/urlx"
 )
 
@@ -20,14 +29,11 @@ func main() {
 
 	switch os.Args[1] {
 	case "parse":
-		if err := runParse(os.Args[2:]); err != nil {
-			if code := fetch.CodeOf(err); code != "" {
-				fmt.Fprintf(os.Stderr, "error [%s]: %v\n", code, err)
-			} else {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			}
-			os.Exit(1)
-		}
+		exitOn(runParse(os.Args[2:]))
+	case "fetch":
+		exitOn(runFetch(os.Args[2:]))
+	case "migrate":
+		exitOn(runMigrate(os.Args[2:]))
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -37,18 +43,26 @@ func main() {
 	}
 }
 
+func exitOn(err error) {
+	if err == nil {
+		return
+	}
+	if code := fetch.CodeOf(err); code != "" {
+		fmt.Fprintf(os.Stderr, "error [%s]: %v\n", code, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+	os.Exit(1)
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `prislage — prisbevakning CLI
 
 Usage:
-  prislage parse <url>                 Hämta en produktsida och skriv ut parsad data
-  prislage parse -file <path> [-url]   Parsa sparad HTML (för regression / offline)
-
-Flags for parse:
-  -file string   lokal HTML-fil istället för HTTP
-  -url string    kanonisk URL (används för store/currency när -file anges)
-  -timeout dur   HTTP-timeout (default 30s)
-  -json          skriv JSON istället för text
+  prislage parse <url>                 Hämta/parsa en produktsida
+  prislage parse -file <path> [-url]   Parsa sparad HTML
+  prislage fetch                       Hämta priser för alla auto-butiker (CronJob)
+  prislage migrate                     Kör goose-migrationer
 
 `)
 }
@@ -56,7 +70,7 @@ Flags for parse:
 func runParse(args []string) error {
 	fs := flag.NewFlagSet("parse", flag.ContinueOnError)
 	file := fs.String("file", "", "path to HTML file")
-	pageURL := fs.String("url", "", "page URL (required with -file for store/currency hints)")
+	pageURL := fs.String("url", "", "page URL")
 	timeout := fs.Duration("timeout", 30*time.Second, "HTTP timeout")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	fs.SetOutput(os.Stderr)
@@ -88,33 +102,23 @@ func runParse(args []string) error {
 	default:
 		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 		defer cancel()
-
 		norm, nerr := urlx.Normalize(rawURL)
 		if nerr != nil {
 			return nerr
 		}
 		fmt.Fprintf(os.Stderr, "fetching %s\n", norm)
-
 		client := fetch.NewHTTPClient("")
 		client.Client.Timeout = *timeout
-		fetcher := fetch.NewGenericFetcher(client)
-		res, err = fetcher.Fetch(ctx, norm)
+		res, err = fetch.NewGenericFetcher(client).Fetch(ctx, norm)
 	}
 	if err != nil {
 		return err
 	}
-
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(res)
 	}
-
-	printResult(res, rawURL)
-	return nil
-}
-
-func printResult(res *fetch.Result, rawURL string) {
 	fmt.Printf("name:     %s\n", res.Name)
 	fmt.Printf("price:    %s %s\n", res.Price.StringFixed(2), res.Currency)
 	fmt.Printf("source:   %s\n", res.Source)
@@ -125,14 +129,69 @@ func printResult(res *fetch.Result, rawURL string) {
 	if res.GTIN != "" {
 		fmt.Printf("gtin:     %s\n", res.GTIN)
 	}
+	if res.SKU != "" {
+		fmt.Printf("sku:      %s\n", res.SKU)
+	}
 	if res.InStock != nil {
 		fmt.Printf("in_stock: %v\n", *res.InStock)
-	} else {
-		fmt.Printf("in_stock: unknown\n")
 	}
-	if rawURL != "" {
-		if norm, err := urlx.Normalize(rawURL); err == nil {
-			fmt.Printf("normalized_url: %s\n", norm)
-		}
+	return nil
+}
+
+func runFetch(args []string) error {
+	fs := flag.NewFlagSet("fetch", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+	defer cancel()
+
+	pool, err := db.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	items := store.NewItems(pool)
+	stores := store.NewStores(pool)
+	fetcher := fetch.NewGenericFetcher(fetch.NewHTTPClient(cfg.UserAgent))
+	svc := service.New(items, stores, fetcher, nil, log)
+	ok, fail := svc.FetchAllAuto(ctx, cfg.FetchRatePerMinute)
+	log.Info("fetch finished", "ok", ok, "fail", fail)
+	if fail > 0 && ok == 0 {
+		return fmt.Errorf("all %d fetches failed", fail)
+	}
+	return nil
+}
+
+func runMigrate(args []string) error {
+	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	dir := fs.String("dir", "", "migrations directory")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	migDir := *dir
+	if migDir == "" {
+		migDir = cfg.MigrationsDir
+	}
+	sqlDB, err := sql.Open("pgx", cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer sqlDB.Close()
+	if err := goose.SetDialect("postgres"); err != nil {
+		return err
+	}
+	return goose.Up(sqlDB, migDir)
 }

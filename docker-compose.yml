@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: prislage
+      POSTGRES_PASSWORD: prislage
+      POSTGRES_DB: prislage
+    ports:
+      - "5433:5432"
+    volumes:
+      - prislage_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prislage -d prislage"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: ./api
+    command: ["/app/prislage", "migrate"]
+    environment:
+      DATABASE_URL: postgres://prislage:prislage@db:5432/prislage?sslmode=disable
+      MIGRATIONS_DIR: /app/migrations
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://prislage:prislage@db:5432/prislage?sslmode=disable
+      HTTP_ADDR: ":3847"
+      API_TOKEN: ${API_TOKEN:-dev-token-change-me}
+      USER_AGENT: PrislageBot/0.1 (+https://github.com/prislage/prislage; price-watch)
+      FETCH_INTERVAL: ${FETCH_INTERVAL:-24h}
+      FETCH_RATE_PER_MINUTE: ${FETCH_RATE_PER_MINUTE:-10}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:prislage@localhost}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      MIGRATIONS_DIR: /app/migrations
+    ports:
+      - "3847:3847"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build: ./web
+    environment:
+      VITE_API_BASE: http://localhost:3847
+      VITE_API_TOKEN: ${API_TOKEN:-dev-token-change-me}
+    ports:
+      - "4188:4188"
+    depends_on:
+      - api
+
+volumes:
+  prislage_pg:

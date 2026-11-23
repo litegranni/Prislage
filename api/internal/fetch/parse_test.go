@@ -42,8 +42,11 @@ func TestParseHTML_JSONLD(t *testing.T) {
 	if res.Brand != "BrewCo" {
 		t.Errorf("brand = %q", res.Brand)
 	}
-	if res.GTIN != "7350012345678" {
+	if res.GTIN != "4006381333931" {
 		t.Errorf("gtin = %q", res.GTIN)
+	}
+	if res.SKU != "BRW-3000" {
+		t.Errorf("sku = %q", res.SKU)
 	}
 	if res.Source != models.SourceJSONLD {
 		t.Errorf("source = %q", res.Source)

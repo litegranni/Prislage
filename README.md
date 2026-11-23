@@ -2,89 +2,102 @@
 
 Prisbevakning: klistra in en produkt-URL, sätt målpris, spara historik från dag ett och få larm när priset når dit.
 
-> **MVP-notis:** Ingen inloggning. Appen är tänkt att köras privat (t.ex. bakom Tailscale) för en användare.
+> **MVP-notis:** Ingen användarinloggning. Appen är tänkt att köras privat (t.ex. bakom Tailscale) för en användare. API:t skyddas med en statisk token (`API_TOKEN`).
 
-## Status
+## Hybridmodell
 
-Fas 1 under uppbyggnad. Just nu finns:
+| Läge | Betydelse |
+|------|-----------|
+| `auto` | Schemaläggaren hämtar produktsidan med PrislageBot |
+| `capture_only` | Ingen automatisk fetch — spara via bookmarklet / `POST /api/capture` |
 
-- Postgres-migrationer (`api/migrations/`)
-- Generisk prisparser (JSON-LD → Open Graph) + `Fetcher`-interface
-- CLI `prislage parse` för att testa mot riktiga butikssidor
-- Enhetstester med sparade HTML-exempel i `api/testdata/`
+Seedade butiker:
 
-API, schemaläggare, frontend och docker-compose kommer i nästa steg.
+- **auto:** `kjell.com`, `apple.com`
+- **capture_only:** `elgiganten.se`, `inet.se`, `netonnet.se`, `webhallen.com`, `komplett.se`
 
-## Förutsättningar
+Nya okända domäner läggs in som `capture_only`. Vi ändrar aldrig User-Agent för att komma förbi blockering.
 
-- Go 1.22+
+GTIN sparas bara om det är 8/12/13/14 siffror med giltig GS1-kontrollsiffra; annars går värdet till `sku`.
 
-## Testa parsningen (enhetstester)
+## Kör lokalt med Docker
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+- API: http://localhost:3847  
+- Web: http://localhost:4188  
+- Postgres: localhost:5433  
+
+Token default: `dev-token-change-me` (sätt `API_TOKEN` i `.env`).
+
+### Utan Docker (utveckling)
+
+```bash
+# DB
+docker compose up -d db
+export DATABASE_URL=postgres://prislage:prislage@localhost:5433/prislage?sslmode=disable
+export API_TOKEN=dev-token-change-me
+
+cd api
+go run ./cmd/prislage migrate
+go run ./cmd/server
+
+# annan terminal
+cd web
+npm install
+VITE_API_BASE=http://localhost:3847 VITE_API_TOKEN=dev-token-change-me npm run dev
+```
+
+## CLI
 
 ```bash
 cd api
-go test ./internal/urlx ./internal/fetch -count=1
+go run ./cmd/prislage parse -json 'https://www.kjell.com/...'
+go run ./cmd/prislage fetch          # CronJob / manuell dygnskörning (bara auto-butiker)
+go run ./cmd/prislage migrate
 ```
 
-## Testa mot en riktig butik
+## API (Bearer token)
 
-```bash
-cd api
-go run ./cmd/prislage parse 'https://exempelbutik.se/produkt/...'
+| Metod | Path | Beskrivning |
+|-------|------|-------------|
+| GET | `/api/items` | lista bevakningar |
+| POST | `/api/items` | `{ url, target_price }` — hämtar namn/pris (bara auto) |
+| GET/PATCH/DELETE | `/api/items/{id}` | detalj / uppdatera / soft delete (`active=false`) |
+| GET | `/api/items/{id}/prices` | historik |
+| POST | `/api/capture` | `{ url, html }` eller `{ url, jsonld }` → price_point `source=capture` |
+| GET | `/api/stores` | butiksläge |
+| POST/DELETE | `/api/push/subscribe` | Web Push |
+
+## Bookmarklet
+
+1. Öppna web-appen och kör i konsolen:
+
+```js
+localStorage.setItem('prislage_api_base', 'http://localhost:3847');
+localStorage.setItem('prislage_api_token', 'dev-token-change-me');
 ```
 
-JSON-utdata:
-
-```bash
-go run ./cmd/prislage parse -json 'https://exempelbutik.se/produkt/...'
-```
-
-Offline / regression mot sparad HTML:
-
-```bash
-go run ./cmd/prislage parse -file testdata/product_jsonld.html -url 'https://shop.example/p/kaffe'
-```
-
-Parsers prioritetsordning:
-
-1. `application/ld+json` med schema.org `Product` / `Offer` (inkl. `@graph` och `AggregateOffer.lowPrice`)
-2. Open Graph / product meta-taggar (`product:price:amount`, `og:price:amount`, …)
-
-Extrafält från JSON-LD när de finns: `brand`, `gtin` / `gtin13` m.fl.
-
-### Felkoder (`items.last_error`)
-
-| Kod | När |
-|-----|-----|
-| `blocked` | HTTP 403/429, checkpoint-sida (Vercel/Cloudflare m.fl.), eller känd blockerad butik |
-| `no_price_found` | HTML hämtades men varken JSON-LD eller OG gav pris |
-| `parse_error` | HTML gick inte att tolka |
-| `http_error` | Övriga HTTP-fel / nätverksfel |
-
-Kända blockerade butiker (skippas innan fetch; API ska avvisa dem): `elgiganten.se`. Vi försöker inte kringgå bot-skydd.
-
-## Mappstruktur (utdrag)
+2. Skapa ett bokmärke med URL:
 
 ```text
-api/
-  cmd/prislage/          # CLI
-  internal/fetch/        # Fetcher + JSON-LD/OG
-  internal/urlx/         # URL-normalisering
-  internal/models/       # Domänmodeller
-  migrations/            # goose SQL
-  testdata/              # HTML-fixtures
+javascript:(function(){var s=document.createElement('script');s.src='http://localhost:4188/capture.js';document.body.appendChild(s);})();
 ```
 
-## Datamodell (migration 00001)
+3. På en produktsida: klicka bokmärket. Det läser `application/ld+json` (fallback: hela HTML) och POSTar till `/api/capture`.
 
-- `items` — inkl. `normalized_url`, `gtin`, `brand`, `last_fetched_at`, `last_error`, `fail_count`; partiellt unikt index på `normalized_url WHERE active`
-- `price_points` — inkl. `source` (`jsonld` | `og` | `manual`); index `(item_id, fetched_at DESC)`
-- `notifications` — `target_reached` / `new_low`
-- `push_subscriptions` — Web Push (senare)
+Skriptet ligger i `web/public/capture.js`.
 
-Soft delete: `DELETE` sätter `active = false` (kommer i API-steget). Historik behålls.
+## Tester
 
-### Larm-dedupe (kommer i fetch-pipelinen)
+```bash
+cd api
+go test ./...
+```
 
-- `target_reached` bara när priset *korsar* målet (föregående > target, nytt ≤ target)
-- `new_low` bara om nytt pris är ≥ 1 % lägre än tidigare lägsta
+## Miljövariabler
+
+Se `.env.example`. Viktiga: `DATABASE_URL`, `API_TOKEN`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`.
