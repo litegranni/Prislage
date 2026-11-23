@@ -1,0 +1,24 @@
+# Binaries
+/api/prislage
+/api/server
+*.exe
+
+# Env / secrets
+.env
+.env.local
+*.pem
+
+# Node (frontend later)
+node_modules/
+dist/
+web/dist/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Test / coverage
+coverage.out
+*.test
