@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { api, money, type ItemSummary, type PricePoint } from "./api";
+import { bookmarkletFor } from "./bookmarklet";
 import { CapturePage } from "./CapturePage";
 import "./styles.css";
 
@@ -252,9 +253,10 @@ export function App() {
       <div class="help panel">
         <strong>Bookmarklet (capture_only-butiker)</strong>
         <p>
-          Bokmärket öppnar <code>/capture</code> och skickar JSON-LD via{" "}
-          <code>postMessage</code> — ingen fetch från butikssidan (undviker CSP{" "}
-          <code>connect-src</code>).
+          Bokmärket öppnar <code>/capture</code>, väntar på handskakning{" "}
+          <code>prislage-ready</code> och skickar sedan JSON-LD via{" "}
+          <code>postMessage</code>. Om opener blockeras (COOP) används fragment-fallback{" "}
+          <code>#d=</code> (trimmat JSON-LD). Ingen fetch från butikssidan.
         </p>
         <p>
           Skapa ett bokmärke med (APP_URL = den här appens origin):
@@ -268,12 +270,6 @@ export function App() {
       </div>
     </div>
   );
-}
-
-function bookmarkletFor(appOrigin: string): string {
-  // Self-contained: no external script load (script-src CSP on stores).
-  const app = JSON.stringify(appOrigin.replace(/\/$/, ""));
-  return `javascript:(function(){var A=${app};var O=new URL(A).origin;var c=[].slice.call(document.querySelectorAll('script[type="application/ld+json"]')).map(function(e){return(e.textContent||"").trim()}).filter(Boolean);var j="";if(c.length===1)j=c[0];else if(c.length>1)j=JSON.stringify(c.map(function(x){try{return JSON.parse(x)}catch(e){return x}}));var p={type:"prislage-capture",url:location.href,title:document.title||"",jsonld:j};var w=window.open(A+"/capture","prislage_capture");if(!w){alert("Popup blocker?");return}var n=0,t=setInterval(function(){if(!w||w.closed){clearInterval(t);return}try{w.postMessage(p,O)}catch(e){}if(++n>40)clearInterval(t)},150);function ack(ev){if(ev.origin!==O||!ev.data||ev.data.type!=="prislage-capture-ack")return;clearInterval(t);window.removeEventListener("message",ack)}window.addEventListener("message",ack)})();`;
 }
 
 const path = typeof location !== "undefined" ? location.pathname.replace(/\/$/, "") || "/" : "/";

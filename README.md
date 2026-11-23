@@ -81,14 +81,22 @@ CORS är en allowlist (`CORS_ORIGIN`, kommaseparerad). Tom lista / `*` ger **ing
 
 Butiker blockerar ofta `connect-src` (ingen `fetch` till ditt API) och ibland `script-src`. Flödet är därför:
 
-1. Bookmarkleten (inline `javascript:`) samlar `url`, `document.title` och alla `application/ld+json`.
-2. Den öppnar `{APP_URL}/capture` i ett nytt fönster.
-3. Den skickar datan med `postMessage` till capture-fönstret (targetOrigin = APP_URL).
+1. Bookmarkleten (inline `javascript:`) samlar `url`, `document.title` och trimmar JSON-LD till Product/Offer-noder (~8 KB).
+2. Den öppnar `{APP_URL}/capture` i ett nytt fönster och **väntar** på handskakning `{type:'prislage-ready'}` från capture-sidan.
+3. Först då skickas datan med `postMessage` (targetOrigin = APP_URL). Timeout **5 s**.
 4. Capture-sidan kontrollerar att `event.source === window.opener` och att `event.origin` matchar **produkt-URL:ens** origin, visar förhandsvisning och POSTar till `/api/capture` med token när du klickar **Spara**.
+
+### COOP / opener saknas (fragment-fallback)
+
+Om butiken sätter Cross-Origin-Opener-Policy så att `window.opener` är `null` (eller postMessage aldrig kommer fram) navigar bookmarkleten efter timeout till:
+
+`{APP_URL}/capture#d=<base64url(JSON)>`
+
+Fragmentet skickas **aldrig** till servern. Capture-sidan avkodar `#d=`, visar förhandsvisning med badge **källa ej verifierad** (ingen origin att kontrollera) och sparar bara när du klickar **Spara**.
 
 Kopiera bokmärkes-URL:en från hjälptexten i PWA:n (den bakas med aktuell `location.origin` som `APP_URL`).
 
-Referensimplementation: `web/public/capture.js` (samma protokoll; använd hellre den inbyggda `javascript:`-länken så ingen extern script-load behövs från butikssidan).
+Referensimplementation: `web/public/capture.js` / `web/src/bookmarklet.ts` (samma protokoll; använd hellre den inbyggda `javascript:`-länken så ingen extern script-load behövs från butikssidan).
 
 ### HTTPS / Tailscale
 

@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api, money } from "./api";
+import { decodeFragmentPayload, type CapturePayload } from "./captureCodec";
 import { previewFromCapture, type CapturePreview } from "./preview";
 
-type CapturePayload = {
-  type: "prislage-capture";
-  url: string;
-  title?: string;
-  jsonld?: string;
-};
+const READY_PING_MS = 400;
+const WAIT_TIMEOUT_MS = 5000;
 
 export function CapturePage() {
   const [payload, setPayload] = useState<CapturePayload | null>(null);
+  const [verified, setVerified] = useState(false);
   const [status, setStatus] = useState<"waiting" | "ready" | "saving" | "saved" | "error">("waiting");
   const [error, setError] = useState("");
   const [target, setTarget] = useState("");
@@ -26,11 +24,29 @@ export function CapturePage() {
   }, [payload]);
 
   useEffect(() => {
-    if (!window.opener) {
-      setStatus("error");
-      setError("Öppna den här sidan via bookmarkleten (popup från butikssidan).");
-      return;
+    let gotData = false;
+
+    function accept(data: CapturePayload, originOK: boolean) {
+      if (gotData) return;
+      gotData = true;
+      setPayload(data);
+      setVerified(originOK);
+      setStatus("ready");
+      setError("");
+      // Drop fragment so refresh does not re-offer the same payload.
+      if (location.hash.startsWith("#d=")) {
+        history.replaceState(null, "", location.pathname + location.search);
+      }
     }
+
+    function tryHash(): boolean {
+      const fromHash = decodeFragmentPayload(location.hash);
+      if (!fromHash) return false;
+      accept(fromHash, false);
+      return true;
+    }
+
+    if (tryHash()) return;
 
     function onMessage(ev: MessageEvent) {
       if (!window.opener || ev.source !== window.opener) return;
@@ -49,11 +65,7 @@ export function CapturePage() {
         return;
       }
 
-      setPayload(data);
-      setStatus("ready");
-      setError("");
-
-      // Ack so bookmarklet stops retrying.
+      accept(data, true);
       try {
         (ev.source as Window).postMessage({ type: "prislage-capture-ack" }, ev.origin);
       } catch {
@@ -61,8 +73,42 @@ export function CapturePage() {
       }
     }
 
+    function onHash() {
+      tryHash();
+    }
+
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    window.addEventListener("hashchange", onHash);
+
+    // Handshake: tell bookmarklet we are ready (no-op if opener is null / COOP).
+    const ping = () => {
+      try {
+        window.opener?.postMessage({ type: "prislage-ready" }, "*");
+      } catch {
+        /* COOP may throw */
+      }
+    };
+    ping();
+    const pingTimer = window.setInterval(ping, READY_PING_MS);
+
+    const timeout = window.setTimeout(() => {
+      if (gotData) return;
+      // Last chance: hash may have been set without firing hashchange (some navigations).
+      if (tryHash()) return;
+      setStatus("error");
+      setError(
+        window.opener
+          ? "Timeout (5 s): fick ingen data via postMessage och inget #d=-fragment."
+          : "Timeout (5 s): ingen opener (COOP?) och inget #d=-fragment. Kör bookmarkleten igen."
+      );
+    }, WAIT_TIMEOUT_MS);
+
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("hashchange", onHash);
+      clearInterval(pingTimer);
+      clearTimeout(timeout);
+    };
   }, []);
 
   useEffect(() => {
@@ -102,12 +148,25 @@ export function CapturePage() {
       <p class="tagline">Förhandsvisa produkten från butikssidan och spara när det ser rätt ut.</p>
 
       {status === "waiting" && (
-        <div class="panel status">Väntar på data från bookmarkleten…</div>
+        <div class="panel status">Väntar på data från bookmarkleten (handskakning / fragment, max 5 s)…</div>
       )}
 
       {preview && (status === "ready" || status === "saving" || status === "error") && (
         <div class="panel capture-preview">
-          <div class="meta">{preview.store}</div>
+          <div class="meta">
+            {preview.store}{" "}
+            {verified ? (
+              <span class="badge">verifierad källa</span>
+            ) : (
+              <span class="badge warn">källa ej verifierad</span>
+            )}
+          </div>
+          {!verified && (
+            <p class="status" style={{ color: "var(--warn)" }}>
+              Data kom via URL-fragment (COOP-fallback). Origin kunde inte verifieras — spara bara om
+              förhandsvisningen stämmer.
+            </p>
+          )}
           <h2 style={{ fontFamily: "var(--font-display)", margin: "0.35rem 0" }}>{preview.name}</h2>
           {preview.brand && <div class="meta">Varumärke: {preview.brand}</div>}
           <div class="prices" style={{ marginTop: "0.75rem" }}>
