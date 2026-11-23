@@ -101,12 +101,14 @@ func (c *HTTPClient) Get(ctx context.Context, rawURL string) (body []byte, final
 	limited := io.LimitReader(resp.Body, 8<<20) // 8 MiB
 	data, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, "", err
+		return nil, "", &Error{Code: ErrCodeHTTPError, Message: err.Error()}
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return data, resp.Request.URL.String(), fmt.Errorf("unexpected status %d", resp.StatusCode)
+	finalURL = resp.Request.URL.String()
+	if fe := classifyHTTPStatus(resp.StatusCode, data); fe != nil {
+		fe.Store = urlx.StoreHost(finalURL)
+		return data, finalURL, fe
 	}
-	return data, resp.Request.URL.String(), nil
+	return data, finalURL, nil
 }
 
 func ParseAvailability(raw string) *bool {

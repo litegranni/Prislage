@@ -52,6 +52,17 @@ Parsers prioritetsordning:
 
 Extrafält från JSON-LD när de finns: `brand`, `gtin` / `gtin13` m.fl.
 
+### Felkoder (`items.last_error`)
+
+| Kod | När |
+|-----|-----|
+| `blocked` | HTTP 403/429, checkpoint-sida (Vercel/Cloudflare m.fl.), eller känd blockerad butik |
+| `no_price_found` | HTML hämtades men varken JSON-LD eller OG gav pris |
+| `parse_error` | HTML gick inte att tolka |
+| `http_error` | Övriga HTTP-fel / nätverksfel |
+
+Kända blockerade butiker (skippas innan fetch; API ska avvisa dem): `elgiganten.se`. Vi försöker inte kringgå bot-skydd.
+
 ## Mappstruktur (utdrag)
 
 ```text

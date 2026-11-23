@@ -27,6 +27,14 @@ func NewGenericFetcher(httpClient *HTTPClient) *GenericFetcher {
 func (g *GenericFetcher) Match(_ string) bool { return true }
 
 func (g *GenericFetcher) Fetch(ctx context.Context, rawURL string) (*Result, error) {
+	if blocked, reason := IsKnownBlockedStore(rawURL); blocked {
+		return nil, &Error{
+			Code:    ErrCodeBlocked,
+			Message: reason,
+			Store:   urlx.StoreHost(rawURL),
+		}
+	}
+
 	body, finalURL, err := g.HTTP.Get(ctx, rawURL)
 	if err != nil {
 		return nil, err
@@ -44,9 +52,21 @@ func (g *GenericFetcher) Fetch(ctx context.Context, rawURL string) (*Result, err
 // ParseHTML extracts product price/metadata from an HTML document.
 // Prefer schema.org JSON-LD; fall back to Open Graph / meta tags.
 func ParseHTML(body []byte, pageURL string) (*Result, error) {
+	if LooksLikeCheckpoint(body) {
+		return nil, &Error{
+			Code:    ErrCodeBlocked,
+			Message: "bot checkpoint / WAF challenge page",
+			Store:   urlx.StoreHost(pageURL),
+		}
+	}
+
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("parse html: %w", err)
+		return nil, &Error{
+			Code:    ErrCodeParseError,
+			Message: fmt.Sprintf("parse html: %v", err),
+			Store:   urlx.StoreHost(pageURL),
+		}
 	}
 
 	if res, err := parseJSONLD(doc); err == nil {
@@ -58,7 +78,11 @@ func ParseHTML(body []byte, pageURL string) (*Result, error) {
 			finalizeResult(res, pageURL)
 			return res, nil
 		} else {
-			return nil, fmt.Errorf("no price found (json-ld: %v; og: %v)", jsonldErr, err)
+			return nil, &Error{
+				Code:    ErrCodeNoPriceFound,
+				Message: fmt.Sprintf("json-ld: %v; og: %v", jsonldErr, err),
+				Store:   urlx.StoreHost(pageURL),
+			}
 		}
 	}
 }

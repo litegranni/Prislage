@@ -21,7 +21,11 @@ func main() {
 	switch os.Args[1] {
 	case "parse":
 		if err := runParse(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			if code := fetch.CodeOf(err); code != "" {
+				fmt.Fprintf(os.Stderr, "error [%s]: %v\n", code, err)
+			} else {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			}
 			os.Exit(1)
 		}
 	case "help", "-h", "--help":
