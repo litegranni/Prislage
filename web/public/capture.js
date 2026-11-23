@@ -1,72 +1,104 @@
 /**
- * Prisläge bookmarklet helper.
+ * Prisläge bookmarklet — CSP-safe capture.
  *
- * Installera: skapa ett bokmärke vars URL är resultatet av:
- *   javascript:(function(){var s=document.createElement('script');s.src='http://localhost:4188/capture.js';document.body.appendChild(s);})();
+ * Körs på butikssidan. Gör INGEN fetch till API:t (connect-src blockerar ofta).
+ * Öppnar {APP_URL}/capture och skickar JSON-LD via postMessage.
  *
- * Kräver att API:t körs och att token sparats via localStorage:
- *   localStorage.setItem('prislage_api_base','http://localhost:3847');
- *   localStorage.setItem('prislage_api_token','din-token');
+ * Rekommenderat bokmärke (byt APP_URL): se README eller hjälptexten i PWA:n.
+ * Denna fil kan också laddas om butiken tillåter script-src till din app.
  */
 (function () {
-  var apiBase = localStorage.getItem("prislage_api_base") || "http://localhost:3847";
-  var token = localStorage.getItem("prislage_api_token") || "";
-  if (!token) {
-    token = prompt("Prisläge API-token") || "";
-    if (token) localStorage.setItem("prislage_api_token", token);
+  var APP_URL = (
+    window.__PRISLAGE_APP_URL__ ||
+    localStorage.getItem("prislage_app_url") ||
+    ""
+  ).replace(/\/$/, "");
+
+  if (!APP_URL) {
+    // Om skriptet laddats från PWA:n, använd den origin.
+    var scripts = document.getElementsByTagName("script");
+    for (var i = scripts.length - 1; i >= 0; i--) {
+      var src = scripts[i].src || "";
+      if (src.indexOf("/capture.js") !== -1) {
+        try {
+          APP_URL = new URL(src).origin;
+        } catch (e) {}
+        break;
+      }
+    }
   }
-  if (!token) {
-    alert("Ingen token — avbryter.");
+
+  if (!APP_URL) {
+    APP_URL = prompt("Prisläge APP_URL (t.ex. https://prislage.your-tailnet.ts.net)", "") || "";
+    APP_URL = APP_URL.replace(/\/$/, "");
+    if (APP_URL) localStorage.setItem("prislage_app_url", APP_URL);
+  }
+  if (!APP_URL) {
+    alert("Ingen APP_URL — avbryter.");
     return;
   }
 
-  var scripts = Array.prototype.slice.call(
-    document.querySelectorAll('script[type="application/ld+json"]')
-  );
-  var chunks = scripts
+  var appOrigin;
+  try {
+    appOrigin = new URL(APP_URL).origin;
+  } catch (e) {
+    alert("Ogiltig APP_URL");
+    return;
+  }
+
+  var chunks = Array.prototype.slice
+    .call(document.querySelectorAll('script[type="application/ld+json"]'))
     .map(function (el) {
       return (el.textContent || "").trim();
     })
     .filter(Boolean);
 
-  var payload = {
-    url: location.href,
-    html: "",
-    jsonld: "",
-  };
-
+  var jsonld = "";
   if (chunks.length === 1) {
-    payload.jsonld = chunks[0];
+    jsonld = chunks[0];
   } else if (chunks.length > 1) {
-    payload.jsonld = JSON.stringify(chunks.map(function (c) {
-      try { return JSON.parse(c); } catch (e) { return c; }
-    }));
-  } else {
-    payload.html = document.documentElement.outerHTML;
+    jsonld = JSON.stringify(
+      chunks.map(function (c) {
+        try {
+          return JSON.parse(c);
+        } catch (e) {
+          return c;
+        }
+      })
+    );
   }
 
-  fetch(apiBase.replace(/\/$/, "") + "/api/capture", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + token,
-    },
-    body: JSON.stringify(payload),
-  })
-    .then(function (res) {
-      return res.json().then(function (body) {
-        if (!res.ok) throw new Error(body.error || res.statusText);
-        return body;
-      });
-    })
-    .then(function (item) {
-      alert(
-        "Sparat: " +
-          (item.name || "produkt") +
-          (item.current_price != null ? " @ " + item.current_price : "")
-      );
-    })
-    .catch(function (err) {
-      alert("Prisläge capture misslyckades: " + err.message);
-    });
+  var payload = {
+    type: "prislage-capture",
+    url: location.href,
+    title: document.title || "",
+    jsonld: jsonld,
+  };
+
+  var w = window.open(APP_URL + "/capture", "prislage_capture");
+  if (!w) {
+    alert("Kunde inte öppna capture-fönster (popup blocker?).");
+    return;
+  }
+
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries += 1;
+    if (!w || w.closed) {
+      clearInterval(timer);
+      return;
+    }
+    try {
+      w.postMessage(payload, appOrigin);
+    } catch (e) {}
+    if (tries >= 40) clearInterval(timer);
+  }, 150);
+
+  function onAck(ev) {
+    if (ev.origin !== appOrigin) return;
+    if (!ev.data || ev.data.type !== "prislage-capture-ack") return;
+    clearInterval(timer);
+    window.removeEventListener("message", onAck);
+  }
+  window.addEventListener("message", onAck);
 })();

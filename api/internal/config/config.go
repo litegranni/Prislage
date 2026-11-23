@@ -32,8 +32,10 @@ func Load() (Config, error) {
 		VAPIDPublicKey:     os.Getenv("VAPID_PUBLIC_KEY"),
 		VAPIDPrivateKey:    os.Getenv("VAPID_PRIVATE_KEY"),
 		VAPIDSubject:       env("VAPID_SUBJECT", "mailto:prislage@localhost"),
-		CORSOrigin:         env("CORS_ORIGIN", "*"),
-		MigrationsDir:      env("MIGRATIONS_DIR", "migrations"),
+		// Comma-separated allowlist of web app origins. Empty = no CORS headers
+		// (same-origin / reverse-proxy). Never use * — store pages must not call the API.
+		CORSOrigin:    env("CORS_ORIGIN", "http://localhost:4188"),
+		MigrationsDir: env("MIGRATIONS_DIR", "migrations"),
 	}
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL is required")

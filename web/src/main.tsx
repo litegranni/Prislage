@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { api, money, type ItemSummary, type PricePoint } from "./api";
+import { CapturePage } from "./CapturePage";
 import "./styles.css";
 
 function Sparkline({ values }: { values?: number[] }) {
@@ -76,6 +77,10 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [prices, setPrices] = useState<PricePoint[]>([]);
   const [detail, setDetail] = useState<ItemSummary | null>(null);
+  const bookmarkletCode = useMemo(
+    () => bookmarkletFor(typeof location !== "undefined" ? location.origin : "http://localhost:4188"),
+    []
+  );
 
   const load = useCallback(async () => {
     setError("");
@@ -247,22 +252,34 @@ export function App() {
       <div class="help panel">
         <strong>Bookmarklet (capture_only-butiker)</strong>
         <p>
-          Spara token i webbläsaren på Prisläge-sidan via konsolen:
-          <br />
-          <code>localStorage.setItem('prislage_api_token','{api.token}')</code>
-          <br />
-          <code>localStorage.setItem('prislage_api_base','{api.base}')</code>
+          Bokmärket öppnar <code>/capture</code> och skickar JSON-LD via{" "}
+          <code>postMessage</code> — ingen fetch från butikssidan (undviker CSP{" "}
+          <code>connect-src</code>).
         </p>
         <p>
-          Skapa sedan ett bokmärke med:
+          Skapa ett bokmärke med (APP_URL = den här appens origin):
           <br />
-          <code>
-            {`javascript:(function(){var s=document.createElement('script');s.src='${typeof location !== "undefined" ? location.origin : "http://localhost:4188"}/capture.js';document.body.appendChild(s);})();`}
-          </code>
+          <code class="bookmarklet-code">{bookmarkletCode}</code>
+        </p>
+        <p class="meta">
+          Om appen nås via Tailscale måste APP_URL vara <strong>https</strong>
+          (t.ex. via <code>tailscale serve</code>), annars blockeras blandat innehåll.
         </p>
       </div>
     </div>
   );
 }
 
-render(<App />, document.getElementById("app")!);
+function bookmarkletFor(appOrigin: string): string {
+  // Self-contained: no external script load (script-src CSP on stores).
+  const app = JSON.stringify(appOrigin.replace(/\/$/, ""));
+  return `javascript:(function(){var A=${app};var O=new URL(A).origin;var c=[].slice.call(document.querySelectorAll('script[type="application/ld+json"]')).map(function(e){return(e.textContent||"").trim()}).filter(Boolean);var j="";if(c.length===1)j=c[0];else if(c.length>1)j=JSON.stringify(c.map(function(x){try{return JSON.parse(x)}catch(e){return x}}));var p={type:"prislage-capture",url:location.href,title:document.title||"",jsonld:j};var w=window.open(A+"/capture","prislage_capture");if(!w){alert("Popup blocker?");return}var n=0,t=setInterval(function(){if(!w||w.closed){clearInterval(t);return}try{w.postMessage(p,O)}catch(e){}if(++n>40)clearInterval(t)},150);function ack(ev){if(ev.origin!==O||!ev.data||ev.data.type!=="prislage-capture-ack")return;clearInterval(t);window.removeEventListener("message",ack)}window.addEventListener("message",ack)})();`;
+}
+
+const path = typeof location !== "undefined" ? location.pathname.replace(/\/$/, "") || "/" : "/";
+const root = document.getElementById("app")!;
+if (path === "/capture") {
+  render(<CapturePage />, root);
+} else {
+  render(<App />, root);
+}

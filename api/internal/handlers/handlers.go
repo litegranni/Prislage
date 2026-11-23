@@ -47,20 +47,54 @@ func (a *API) Routes() http.Handler {
 }
 
 func (a *API) cors(next http.Handler) http.Handler {
+	allowed := parseCORSAllowlist(a.Cfg.CORSOrigin)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := a.Cfg.CORSOrigin
-		if origin == "" {
-			origin = "*"
+		reqOrigin := r.Header.Get("Origin")
+		if reqOrigin != "" && originAllowed(reqOrigin, allowed) {
+			w.Header().Set("Access-Control-Allow-Origin", reqOrigin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
+			if reqOrigin != "" && !originAllowed(reqOrigin, allowed) {
+				writeErr(w, http.StatusForbidden, "origin not allowed")
+				return
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func parseCORSAllowlist(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "*" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && p != "*" {
+			out = append(out, strings.TrimRight(p, "/"))
+		}
+	}
+	return out
+}
+
+func originAllowed(origin string, allowlist []string) bool {
+	if len(allowlist) == 0 {
+		return false
+	}
+	origin = strings.TrimRight(origin, "/")
+	for _, a := range allowlist {
+		if origin == a {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *API) requireToken(next http.Handler) http.Handler {

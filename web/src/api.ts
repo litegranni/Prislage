@@ -63,6 +63,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(sub),
     }),
+  capture: (body: { url: string; jsonld?: string; html?: string; target_price?: number }) =>
+    request<ItemSummary>("/api/capture", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 export function money(value?: string | number | null, currency = "SEK"): string {
