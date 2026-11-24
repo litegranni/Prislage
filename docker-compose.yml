@@ -39,6 +39,8 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:prislage@localhost}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4188}
       MIGRATIONS_DIR: /app/migrations
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-5}
     ports:
       - "3847:3847"
     depends_on:

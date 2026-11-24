@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 
+	"prislage/internal/analyze"
 	"prislage/internal/fetch"
 	"prislage/internal/models"
 	"prislage/internal/notify"
@@ -19,11 +20,13 @@ import (
 )
 
 type Service struct {
-	Items   *store.Items
-	Stores  *store.Stores
-	Fetcher fetch.Fetcher
-	Push    PushSender
-	Log     *slog.Logger
+	Items    *store.Items
+	Stores   *store.Stores
+	Analyses *store.Analyses
+	Fetcher  fetch.Fetcher
+	Push     PushSender
+	Claude   *analyze.Client
+	Log      *slog.Logger
 }
 
 type PushSender interface {

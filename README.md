@@ -1,6 +1,6 @@
 # Prisläge
 
-Prisbevakning: klistra in en produkt-URL, sätt målpris, spara historik från dag ett och få larm när priset når dit.
+Analysera när en produkt troligen är billigast (Claude + webbsökning), bevaka sedan tills priset når ditt mål. Capture/bookmarklet fyller egen historik som gör framtida analyser bättre.
 
 > **MVP-notis:** Ingen användarinloggning. Appen är tänkt att köras privat (t.ex. bakom Tailscale) för en användare. API:t skyddas med en statisk token (`API_TOKEN`).
 
@@ -32,6 +32,8 @@ docker compose up --build
 - Postgres: localhost:5433  
 
 Token default: `dev-token-change-me` (sätt `API_TOKEN` i `.env`).
+
+Sätt `ANTHROPIC_API_KEY` för Analysera (`POST /api/analyze`). Nyckeln stannar på API-servern. Modell default: `claude-sonnet-4-5` (override med `ANTHROPIC_MODEL`). Webbsökning via Anthropics serververktyg `web_search` (`type: web_search_20250305`).
 
 Sätt `CORS_ORIGIN` till webappens origin (default `http://localhost:4188`). Butiksdomäner får **inte** anropa API:t.
 
@@ -67,6 +69,8 @@ go run ./cmd/prislage migrate
 
 | Metod | Path | Beskrivning |
 |-------|------|-------------|
+| POST | `/api/analyze` | `{ query }` → Claude + web_search; cachas 7 dagar i `analyses` |
+| POST | `/api/watch` | skapa bevakning utan live-fetch (från analysresultat) |
 | GET | `/api/items` | lista bevakningar |
 | POST | `/api/items` | `{ url, target_price }` — hämtar namn/pris (bara auto) |
 | GET/PATCH/DELETE | `/api/items/{id}` | detalj / uppdatera / soft delete (`active=false`) |

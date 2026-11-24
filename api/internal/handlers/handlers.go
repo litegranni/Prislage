@@ -39,6 +39,8 @@ func (a *API) Routes() http.Handler {
 		r.Get("/api/items/{id}/prices", a.listPrices)
 		r.Get("/api/items/{id}/notifications", a.listNotifications)
 		r.Post("/api/capture", a.capture)
+		r.Post("/api/analyze", a.analyze)
+		r.Post("/api/watch", a.watchFromAnalyze)
 		r.Get("/api/stores", a.listStores)
 		r.Post("/api/push/subscribe", a.pushSubscribe)
 		r.Delete("/api/push/subscribe", a.pushUnsubscribe)
@@ -234,6 +236,57 @@ func (a *API) listNotifications(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (a *API) analyze(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query string `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	out, err := a.Svc.Analyze(r.Context(), body.Query)
+	if err != nil {
+		msg := err.Error()
+		status := http.StatusBadRequest
+		if strings.Contains(msg, "ANTHROPIC_API_KEY") {
+			status = http.StatusServiceUnavailable
+		} else if strings.Contains(msg, "anthropic") || strings.Contains(msg, "schema:") {
+			status = http.StatusBadGateway
+		}
+		writeErr(w, status, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *API) watchFromAnalyze(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL          string           `json:"url"`
+		Name         string           `json:"name"`
+		Brand        string           `json:"brand"`
+		GTIN         string           `json:"gtin"`
+		TargetPrice  decimal.Decimal  `json:"target_price"`
+		CurrentPrice *decimal.Decimal `json:"current_price"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	cur := decimal.Zero
+	if body.CurrentPrice != nil {
+		cur = *body.CurrentPrice
+	}
+	item, err := a.Svc.WatchFromAnalyze(r.Context(), service.WatchFromAnalyzeInput{
+		URL: body.URL, Name: body.Name, Brand: body.Brand, GTIN: body.GTIN,
+		TargetPrice: body.TargetPrice, CurrentPrice: cur,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
 }
 
 func (a *API) capture(w http.ResponseWriter, r *http.Request) {

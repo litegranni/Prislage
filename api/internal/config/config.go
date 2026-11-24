@@ -19,6 +19,8 @@ type Config struct {
 	VAPIDSubject       string
 	CORSOrigin         string
 	MigrationsDir      string
+	AnthropicAPIKey    string
+	AnthropicModel     string
 }
 
 func Load() (Config, error) {
@@ -34,8 +36,10 @@ func Load() (Config, error) {
 		VAPIDSubject:       env("VAPID_SUBJECT", "mailto:prislage@localhost"),
 		// Comma-separated allowlist of web app origins. Empty = no CORS headers
 		// (same-origin / reverse-proxy). Never use * — store pages must not call the API.
-		CORSOrigin:    env("CORS_ORIGIN", "http://localhost:4188"),
-		MigrationsDir: env("MIGRATIONS_DIR", "migrations"),
+		CORSOrigin:      env("CORS_ORIGIN", "http://localhost:4188"),
+		MigrationsDir:   env("MIGRATIONS_DIR", "migrations"),
+		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicModel:  env("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
 	}
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL is required")

@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"prislage/internal/analyze"
 	"prislage/internal/config"
 	"prislage/internal/db"
 	"prislage/internal/fetch"
@@ -38,6 +39,7 @@ func main() {
 
 	items := store.NewItems(pool)
 	stores := store.NewStores(pool)
+	analyses := store.NewAnalyses(pool)
 	client := fetch.NewHTTPClient(cfg.UserAgent)
 	fetcher := fetch.NewGenericFetcher(client)
 	push := &notify.WebPush{
@@ -45,6 +47,13 @@ func main() {
 		Subject: cfg.VAPIDSubject, Log: log,
 	}
 	svc := service.New(items, stores, fetcher, push, log)
+	svc.Analyses = analyses
+	if cfg.AnthropicAPIKey != "" {
+		svc.Claude = analyze.NewClient(cfg.AnthropicAPIKey, cfg.AnthropicModel)
+		log.Info("analyze enabled", "model", cfg.AnthropicModel)
+	} else {
+		log.Warn("ANTHROPIC_API_KEY saknas — POST /api/analyze inaktiverad")
+	}
 
 	sched := &fetch.Scheduler{
 		Fetcher: svc, Interval: cfg.FetchInterval, RatePerMinute: cfg.FetchRatePerMinute, Log: log,
@@ -56,6 +65,8 @@ func main() {
 		Addr:              cfg.HTTPAddr,
 		Handler:           api.Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      150 * time.Second,
 	}
 
 	go func() {

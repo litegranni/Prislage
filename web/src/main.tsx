@@ -1,6 +1,13 @@
 import { render } from "preact";
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
-import { api, money, type ItemSummary, type PricePoint } from "./api";
+import {
+  api,
+  money,
+  safeHref,
+  type AnalyzeResponse,
+  type ItemSummary,
+  type PricePoint,
+} from "./api";
 import { bookmarkletFor } from "./bookmarklet";
 import { CapturePage } from "./CapturePage";
 import "./styles.css";
@@ -68,10 +75,38 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
+function confidenceLabel(c: string): string {
+  switch (c) {
+    case "high":
+      return "Hög säkerhet";
+    case "medium":
+      return "Medel säkerhet";
+    default:
+      return "Låg säkerhet";
+  }
+}
+
+function suggestedTarget(analysis: AnalyzeResponse): number {
+  const r = analysis.result;
+  if (r.historical_low?.price) return Math.round(r.historical_low.price);
+  const prices = r.current_prices.map((p) => p.price).filter((n) => n > 0);
+  if (!prices.length) return 0;
+  return Math.round(Math.min(...prices) * 0.9);
+}
+
+function cheapestOffer(analysis: AnalyzeResponse) {
+  const prices = [...analysis.result.current_prices].sort((a, b) => a.price - b.price);
+  return prices[0] || null;
+}
+
 export function App() {
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+  const [watching, setWatching] = useState(false);
   const [url, setUrl] = useState("");
   const [target, setTarget] = useState("");
   const [saving, setSaving] = useState(false);
@@ -121,6 +156,50 @@ export function App() {
       cancelled = true;
     };
   }, [selected, items]);
+
+  async function onAnalyze(e: Event) {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q) return;
+    setAnalyzing(true);
+    setError("");
+    setAnalysis(null);
+    try {
+      const res = await api.analyze(q);
+      setAnalysis(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Analys misslyckades");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  async function onWatchFromAnalysis() {
+    if (!analysis) return;
+    const offer = cheapestOffer(analysis);
+    if (!offer) {
+      setError("Ingen butikslänk att bevaka");
+      return;
+    }
+    const tp = suggestedTarget(analysis);
+    setWatching(true);
+    setError("");
+    try {
+      await api.watchFromAnalyze({
+        url: offer.url,
+        name: analysis.result.product.name,
+        brand: analysis.result.product.brand,
+        gtin: analysis.result.product.gtin,
+        target_price: tp || Math.round(offer.price * 0.9),
+        current_price: offer.price,
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte bevaka");
+    } finally {
+      setWatching(false);
+    }
+  }
 
   async function onAdd(e: Event) {
     e.preventDefault();
@@ -172,7 +251,16 @@ export function App() {
           <div>
             <button class="secondary" type="button" onClick={() => setSelected(null)}>← Tillbaka</button>
             <h1 class="brand" style={{ marginTop: "0.75rem", fontSize: "1.8rem" }}>{detail.name}</h1>
-            <p class="meta"><a href={detail.url} target="_blank" rel="noreferrer">{detail.store}</a></p>
+            <p class="meta">
+              {(() => {
+                const href = safeHref(detail.url);
+                return href ? (
+                  <a href={href} target="_blank" rel="noreferrer noopener">{detail.store}</a>
+                ) : (
+                  <span>{detail.store}</span>
+                );
+              })()}
+            </p>
           </div>
           <button class="secondary" type="button" onClick={() => removeItem(detail.id)}>Inaktivera</button>
         </div>
@@ -189,12 +277,113 @@ export function App() {
     );
   }
 
+  const result = analysis?.result;
+
   return (
     <div class="app-shell">
-      <h1 class="brand">Prisläge</h1>
-      <p class="tagline">Bevaka produkter, spara historik från dag ett och få larm när priset når ditt mål.</p>
+      <header class="hero">
+        <h1 class="brand">Prisläge</h1>
+        <p class="tagline">Analysera när en produkt brukar vara billigast — bevaka sedan tills den når ditt mål.</p>
+      </header>
 
-      <div class="toolbar">
+      <form class="panel analyze-form" onSubmit={onAnalyze}>
+        <label>
+          Vad vill du köpa?
+          <input
+            required
+            placeholder="Roborock Saros 20 Sonic robotdammsugare Vit"
+            value={query}
+            onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
+            disabled={analyzing}
+          />
+        </label>
+        <button type="submit" disabled={analyzing}>
+          {analyzing ? "Analyserar…" : "Analysera"}
+        </button>
+      </form>
+
+      {analyzing && (
+        <div class="panel status">Söker priser och historik via Claude (kan ta upp till en minut)…</div>
+      )}
+
+      {result && (
+        <section class="panel analyze-result">
+          <h2 class="analyze-headline">
+            {result.product.name} är troligen billigast i {result.best_month}
+          </h2>
+          <div class="meta analyze-meta">
+            <span class={`badge conf-${result.confidence}`}>{confidenceLabel(result.confidence)}</span>
+            {analysis?.cached && <span class="badge">cache · 7 dagar</span>}
+            {result.product.brand && <span>{result.product.brand}</span>}
+            {result.product.variant && <span>{result.product.variant}</span>}
+          </div>
+          <p class="analyze-reasoning">{result.reasoning}</p>
+          {result.best_period_note && <p class="meta">{result.best_period_note}</p>}
+
+          {result.historical_low && (
+            <p class="meta">
+              Historiskt lågt: {money(result.historical_low.price)} ({result.historical_low.date}
+              {result.historical_low.source ? ` · ${result.historical_low.source}` : ""})
+            </p>
+          )}
+          {result.predecessor && (
+            <p class="meta">
+              Föregångare: {result.predecessor.name} — {result.predecessor.pattern}
+            </p>
+          )}
+
+          <h3 class="section-label">Nuvarande priser</h3>
+          <ul class="price-list">
+            {result.current_prices.map((p) => {
+              const href = safeHref(p.url);
+              return (
+                <li key={`${p.store}-${p.url}`}>
+                  <span>{p.store}</span>
+                  <strong>{money(p.price)}</strong>
+                  {href ? (
+                    <a href={href} target="_blank" rel="noreferrer noopener">Öppna</a>
+                  ) : (
+                    <span class="meta">länk saknas</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+
+          {result.sources?.length > 0 && (
+            <>
+              <h3 class="section-label">Källor</h3>
+              <ul class="source-list">
+                {result.sources.map((s) => {
+                  const href = safeHref(s.url);
+                  return (
+                    <li key={s.url + s.title}>
+                      {href ? (
+                        <a href={href} target="_blank" rel="noreferrer noopener">{s.title}</a>
+                      ) : (
+                        <span>{s.title}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+
+          <div class="toolbar" style={{ marginTop: "1rem", marginBottom: 0 }}>
+            <button type="button" onClick={onWatchFromAnalysis} disabled={watching}>
+              {watching
+                ? "Sparar…"
+                : `Bevaka · mål ${money(suggestedTarget(analysis!))}`}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {error && <p class="status error">{error}</p>}
+
+      <div class="toolbar" style={{ marginTop: "1.75rem" }}>
+        <h2 class="section-heading">Bevakningar</h2>
         <button type="button" class="secondary" onClick={load}>Uppdatera</button>
         <button type="button" class="secondary" onClick={enablePush}>Aktivera push</button>
       </div>
@@ -223,10 +412,9 @@ export function App() {
       </form>
 
       {loading && <p class="status">Laddar bevakningar…</p>}
-      {error && <p class="status error">{error}</p>}
 
       {!loading && items.length === 0 && (
-        <div class="panel empty">Inga bevakningar ännu. Klistra in en URL från en auto-butik (t.ex. Kjell) eller använd bookmarkleten för capture_only-butiker.</div>
+        <div class="panel empty">Inga bevakningar ännu. Analysera en produkt och klicka Bevaka, eller klistra in en URL.</div>
       )}
 
       <div class="item-list">

@@ -28,6 +28,31 @@ export type PricePoint = {
   in_stock?: boolean;
 };
 
+export type AnalyzeResult = {
+  product: {
+    name: string;
+    brand: string;
+    variant: string;
+    gtin?: string;
+  };
+  current_prices: { store: string; price: number; url: string }[];
+  historical_low?: { price: number; date: string; source: string };
+  predecessor?: { name: string; pattern: string };
+  best_month: string;
+  best_period_note: string;
+  confidence: "low" | "medium" | "high";
+  reasoning: string;
+  sources: { title: string; url: string }[];
+};
+
+export type AnalyzeResponse = {
+  id: string;
+  query: string;
+  cached: boolean;
+  created_at: string;
+  result: AnalyzeResult;
+};
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${API_TOKEN}`);
@@ -52,6 +77,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ url, target_price }),
     }),
+  watchFromAnalyze: (body: {
+    url: string;
+    name?: string;
+    brand?: string;
+    gtin?: string;
+    target_price: number;
+    current_price?: number;
+  }) =>
+    request<ItemSummary>("/api/watch", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  analyze: (query: string) =>
+    request<AnalyzeResponse>("/api/analyze", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    }),
   getItem: (id: string) => request<ItemSummary>(`/api/items/${id}`),
   deleteItem: (id: string) => request<void>(`/api/items/${id}`, { method: "DELETE" }),
   patchItem: (id: string, body: Record<string, unknown>) =>
@@ -75,4 +117,16 @@ export function money(value?: string | number | null, currency = "SEK"): string 
   const n = typeof value === "number" ? value : Number(value);
   if (Number.isNaN(n)) return String(value);
   return new Intl.NumberFormat("sv-SE", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
+}
+
+/** Only allow http(s) links in the UI. */
+export function safeHref(raw?: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol === "http:" || u.protocol === "https:") return u.href;
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
